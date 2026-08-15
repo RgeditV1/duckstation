@@ -70,13 +70,18 @@ void CoverDownloadWindow::onStartClicked()
   m_task = QtAsyncTaskWithProgress::create(
     this, [this, urls = std::move(urls), use_serials](ProgressCallback* const progress) {
       Error error;
+      u32 downloaded_count = 0;
       const bool result = GameList::DownloadCovers(
         urls, use_serials, progress, &error, [](const GameList::Entry* entry, std::string) mutable {
           Host::RunOnUIThread([path = entry->path]() {
             g_main_window->getGameListWidget()->getModel()->invalidateColumnForPath(path, GameListModel::Column_Cover);
           });
-        });
-      return [this, result, error = std::move(error)]() { downloadComplete(result, error); };
+        },
+        &downloaded_count);
+      const bool cancelled = progress->IsCancelled();
+      return [this, result, error = std::move(error), downloaded_count, cancelled]() {
+        downloadComplete(result, error, downloaded_count, cancelled);
+      };
     });
 
   m_task->connectWidgets(m_ui.status, m_ui.progress, m_ui.start);
@@ -86,15 +91,26 @@ void CoverDownloadWindow::onStartClicked()
   updateEnabled();
 }
 
-void CoverDownloadWindow::downloadComplete(bool result, const Error& error)
+void CoverDownloadWindow::downloadComplete(bool result, const Error& error, u32 downloaded_count, bool cancelled)
 {
   g_main_window->getGameListWidget()->getModel()->invalidateColumn(GameListModel::Column_Cover);
 
-  m_ui.status->setText(tr("Download complete."));
   if (!result)
   {
     if (const std::string& err_str = error.GetDescription(); !err_str.empty())
       m_ui.status->setText(QString::fromStdString(err_str));
+  }
+  else if (cancelled)
+  {
+    m_ui.status->setText(tr("Download cancelled."));
+  }
+  else if (downloaded_count == 0)
+  {
+    m_ui.status->setText(tr("No covers found."));
+  }
+  else
+  {
+    m_ui.status->setText(tr("Download complete."));
   }
 
   m_task = nullptr;

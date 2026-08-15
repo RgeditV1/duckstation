@@ -39,6 +39,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <bit>
 #include <ctime>
 #include <string_view>
@@ -1802,16 +1803,21 @@ GameList::GetEntriesInDiscSet(const GameDatabase::DiscSetEntry* dsentry, bool lo
 
 bool GameList::DownloadCovers(const std::vector<std::string>& url_templates, bool use_serial,
                               ProgressCallback* progress, Error* error,
-                              std::function<void(const Entry*, std::string)> save_callback)
+                              std::function<void(const Entry*, std::string)> save_callback,
+                              u32* downloaded_count)
 {
   if (!progress)
     progress = ProgressCallback::NullProgressCallback;
+
+  if (downloaded_count)
+    *downloaded_count = 0;
 
   bool has_title = false;
   bool has_localized_title = false;
   bool has_save_title = false;
   bool has_file_title = false;
   bool has_serial = false;
+  std::atomic<u32> successful_downloads = 0;
   for (const std::string& url_template : url_templates)
   {
     if (!has_title && url_template.find("${title}") != std::string::npos)
@@ -1893,7 +1899,8 @@ bool GameList::DownloadCovers(const std::vector<std::string>& url_templates, boo
     std::string filename = Path::URLDecode(url);
     HTTPDownloader::CreateRequest(
       std::move(url), &s_state,
-      [use_serial, &save_callback, entry_path = std::move(entry_path), filename = std::move(filename)](
+      [use_serial, &save_callback, &successful_downloads, entry_path = std::move(entry_path),
+        filename = std::move(filename)](
         s32 status_code, Error& error, std::string& content_type, HTTPDownloader::RequestData& data) {
         if (status_code != HTTPDownloader::HTTP_STATUS_OK || data.empty())
         {
@@ -1925,12 +1932,20 @@ bool GameList::DownloadCovers(const std::vector<std::string>& url_templates, boo
         if (write_path.empty())
           return;
 
-        if (FileSystem::WriteBinaryFile(write_path.c_str(), data.data(), data.size()) && save_callback)
-          save_callback(entry, std::move(write_path));
+        if (FileSystem::WriteBinaryFile(write_path.c_str(), data.data(), data.size()))
+        {
+          successful_downloads.fetch_add(1, std::memory_order_relaxed);
+
+          if (save_callback)
+            save_callback(entry, std::move(write_path));
+        }
       });
     HTTPDownloader::WaitForAllRequestsFromOwner(&s_state);
     progress->IncrementProgressValue();
   }
+
+  if (downloaded_count)
+    *downloaded_count = successful_downloads.load(std::memory_order_relaxed);
 
   return true;
 }
