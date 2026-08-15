@@ -71,16 +71,18 @@ void CoverDownloadWindow::onStartClicked()
     this, [this, urls = std::move(urls), use_serials](ProgressCallback* const progress) {
       Error error;
       u32 downloaded_count = 0;
+      bool timed_out = false;
+      bool network_error = false;
       const bool result = GameList::DownloadCovers(
         urls, use_serials, progress, &error, [](const GameList::Entry* entry, std::string) mutable {
           Host::RunOnUIThread([path = entry->path]() {
             g_main_window->getGameListWidget()->getModel()->invalidateColumnForPath(path, GameListModel::Column_Cover);
           });
         },
-        &downloaded_count);
+        &downloaded_count, &timed_out, &network_error);
       const bool cancelled = progress->IsCancelled();
-      return [this, result, error = std::move(error), downloaded_count, cancelled]() {
-        downloadComplete(result, error, downloaded_count, cancelled);
+      return [this, result, error = std::move(error), downloaded_count, cancelled, timed_out, network_error]() {
+        downloadComplete(result, error, downloaded_count, cancelled, timed_out, network_error);
       };
     });
 
@@ -91,7 +93,8 @@ void CoverDownloadWindow::onStartClicked()
   updateEnabled();
 }
 
-void CoverDownloadWindow::downloadComplete(bool result, const Error& error, u32 downloaded_count, bool cancelled)
+void CoverDownloadWindow::downloadComplete(bool result, const Error& error, u32 downloaded_count, bool cancelled,
+                                           bool timed_out, bool network_error)
 {
   g_main_window->getGameListWidget()->getModel()->invalidateColumn(GameListModel::Column_Cover);
 
@@ -103,6 +106,14 @@ void CoverDownloadWindow::downloadComplete(bool result, const Error& error, u32 
   else if (cancelled)
   {
     m_ui.status->setText(tr("Download cancelled."));
+  }
+  else if (timed_out)
+  {
+    m_ui.status->setText(tr("Download timed out. Check your internet connection and try again."));
+  }
+  else if (network_error)
+  {
+    m_ui.status->setText(tr("Network error. Check your internet connection and try again."));
   }
   else if (downloaded_count == 0)
   {

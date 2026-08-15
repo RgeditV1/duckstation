@@ -1804,13 +1804,17 @@ GameList::GetEntriesInDiscSet(const GameDatabase::DiscSetEntry* dsentry, bool lo
 bool GameList::DownloadCovers(const std::vector<std::string>& url_templates, bool use_serial,
                               ProgressCallback* progress, Error* error,
                               std::function<void(const Entry*, std::string)> save_callback,
-                              u32* downloaded_count)
+                              u32* downloaded_count, bool* timed_out, bool* network_error)
 {
   if (!progress)
     progress = ProgressCallback::NullProgressCallback;
 
   if (downloaded_count)
     *downloaded_count = 0;
+  if (timed_out)
+    *timed_out = false;
+  if (network_error)
+    *network_error = false;
 
   bool has_title = false;
   bool has_localized_title = false;
@@ -1818,6 +1822,8 @@ bool GameList::DownloadCovers(const std::vector<std::string>& url_templates, boo
   bool has_file_title = false;
   bool has_serial = false;
   std::atomic<u32> successful_downloads = 0;
+  std::atomic_bool request_timed_out = false;
+  std::atomic_bool request_network_error = false;
   for (const std::string& url_template : url_templates)
   {
     if (!has_title && url_template.find("${title}") != std::string::npos)
@@ -1899,11 +1905,16 @@ bool GameList::DownloadCovers(const std::vector<std::string>& url_templates, boo
     std::string filename = Path::URLDecode(url);
     HTTPDownloader::CreateRequest(
       std::move(url), &s_state,
-      [use_serial, &save_callback, &successful_downloads, entry_path = std::move(entry_path),
-        filename = std::move(filename)](
+      [use_serial, &save_callback, &successful_downloads, &request_timed_out, &request_network_error,
+        entry_path = std::move(entry_path), filename = std::move(filename)](
         s32 status_code, Error& error, std::string& content_type, HTTPDownloader::RequestData& data) {
         if (status_code != HTTPDownloader::HTTP_STATUS_OK || data.empty())
         {
+          if (status_code == HTTPDownloader::HTTP_STATUS_TIMEOUT)
+            request_timed_out.store(true, std::memory_order_relaxed);
+          else if (status_code == HTTPDownloader::HTTP_STATUS_ERROR)
+            request_network_error.store(true, std::memory_order_relaxed);
+
           ERROR_LOG("Download for {} failed: {}", Path::GetFileName(filename), error.GetDescription());
           return;
         }
@@ -1946,6 +1957,10 @@ bool GameList::DownloadCovers(const std::vector<std::string>& url_templates, boo
 
   if (downloaded_count)
     *downloaded_count = successful_downloads.load(std::memory_order_relaxed);
+  if (timed_out)
+    *timed_out = request_timed_out.load(std::memory_order_relaxed);
+  if (network_error)
+    *network_error = request_network_error.load(std::memory_order_relaxed);
 
   return true;
 }

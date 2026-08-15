@@ -164,7 +164,7 @@ std::vector<std::pair<std::string_view, const Entry*>> GetEntriesInDiscSet(const
 /// with the use_serial parameter. save_callback optionall takes the entry and the path the new cover is saved to.
 bool DownloadCovers(const std::vector<std::string>& url_templates, bool use_serial, ProgressCallback* progress,
                     Error* error, std::function<void(const Entry*, std::string)> save_callback = {},
-                    u32* downloaded_count = nullptr);
+                    u32* downloaded_count = nullptr, bool* timed_out = nullptr, bool* network_error = nullptr);
 
 // Custom properties support
 bool SaveCustomTitleForPath(const std::string& path, const std::string& custom_title);

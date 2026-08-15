@@ -34,7 +34,8 @@ protected:
 
 private:
   void onStartClicked();
-  void downloadComplete(bool result, const Error& error, u32 downloaded_count, bool cancelled);
+  void downloadComplete(bool result, const Error& error, u32 downloaded_count, bool cancelled, bool timed_out,
+                        bool network_error);
   void updateEnabled();
 
   Ui::CoverDownloadWindow m_ui;
